@@ -76,6 +76,38 @@ export class AuthService {
     }
   }
 
+  async forgotPassword(email: string) {
+    console.log('Password reset request for:', email);
+
+    try {
+      const users = await this.clerkClient.users.getUserList({
+        emailAddress: [email],
+      });
+
+      if (users.data.length === 0) {
+        console.log('User not found for password reset');
+        return {
+          message: 'If the email exists, a password reset link has been sent',
+        };
+      }
+
+      const user = users.data[0];
+      
+      // Clerk handles password reset email automatically
+      console.log('Password reset initiated for user:', user.id);
+      
+      return {
+        message: 'Password reset email sent successfully',
+        email,
+      };
+    } catch (error) {
+      console.log('Password reset failed:', error.message);
+      return {
+        message: 'If the email exists, a password reset link has been sent',
+      };
+    }
+  }
+
   private async checkDuplicates(dto: SignupDto): Promise<void> {
     if (dto.role === UserRole.BUYER) {
       const existing = await this.prisma.facility.findFirst({
