@@ -1,7 +1,6 @@
 export enum UserRole {
   BUYER = 'buyer',
-  SUPPLIER = 'supplier',
-  ADMIN = 'admin'
+  SELLER = 'seller',
 }
 
 export interface ClerkUser {
@@ -9,6 +8,9 @@ export interface ClerkUser {
   emailAddresses: Array<{ emailAddress: string }>;
   publicMetadata: {
     role?: UserRole;
+    onboardingComplete?: boolean;
     facilityId?: string;
+    supplierId?: string;
+    supplierRegistered?: boolean;
   };
 }
