@@ -33,4 +33,10 @@ export class FacilitiesController {
     
     return facility;
   }
+
+  @Get('onboarding-status')
+  async getOnboardingStatus(@CurrentUser() user: ClerkUser) {
+    console.log('Onboarding status requested for:', user.id);
+    return this.facilitiesService.getOnboardingStatus(user.id);
+  }
 }

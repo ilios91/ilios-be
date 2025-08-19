@@ -1,8 +1,9 @@
-import { Injectable, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { createClerkClient } from '@clerk/backend';
 import { PrismaService } from '../../shared/config/prisma.service';
 import { ConfigService } from '../../shared/config/config.service';
-import { SignupDto } from './dto/signup.dto';
+import { BuyerSignupDto } from './dto/buyer-signup.dto';
+import { SupplierSignupDto } from './dto/supplier-signup.dto';
 import { SigninDto } from './dto/signin.dto';
 import { UserRole } from '../../shared/types/user.types';
 
@@ -17,34 +18,71 @@ export class AuthService {
     this.clerkClient = createClerkClient({ secretKey: this.config.clerk.secretKey });
   }
 
+  async buyerSignup(dto: BuyerSignupDto) {
+    console.log('Buyer signup attempt for:', dto.email);
+    console.log('Request data:', JSON.stringify(dto, null, 2));
 
-
-  async signup(dto: SignupDto) {
-    console.log('Signup attempt for:', dto.email);
-
-    await this.checkDuplicates(dto);
+    await this.checkBuyerDuplicates(dto);
 
     try {
       const user = await this.clerkClient.users.createUser({
         emailAddress: [dto.email],
         password: dto.password,
-        publicMetadata: { role: dto.role },
+        publicMetadata: { role: UserRole.BUYER },
+        skipPasswordRequirement: false,
+        skipPasswordChecks: false,
       });
 
-      if (dto.role === UserRole.BUYER) {
-        await this.createFacility(user.id, dto);
-      }
+      await this.createFacility(user.id, dto);
 
-      console.log('User created:', user.id);
+      console.log('Buyer created:', user.id);
       
       return {
-        message: 'User registered successfully',
+        message: 'Buyer account created successfully.',
         userId: user.id,
         email: dto.email,
-        role: dto.role,
+        role: UserRole.BUYER,
       };
     } catch (error) {
-      console.log('Clerk signup failed:', error.message);
+      console.log('Buyer signup failed:', error.message);
+      console.log('Full error:', error);
+      console.log('Error stack:', error.stack);
+      if (error.errors?.[0]?.code === 'form_identifier_exists') {
+        throw new ConflictException('Email already exists');
+      }
+      throw new ConflictException('Registration failed');
+    }
+  }
+
+  async supplierSignup(dto: SupplierSignupDto) {
+    console.log('Supplier signup attempt for:', dto.email);
+
+    await this.checkSupplierDuplicates(dto);
+
+    try {
+      const user = await this.clerkClient.users.createUser({
+        emailAddress: [dto.email],
+        password: dto.password,
+        publicMetadata: { role: UserRole.SELLER },
+        skipPasswordRequirement: false,
+        skipPasswordChecks: false,
+      });
+
+      await this.createSupplier(user.id, dto);
+
+      console.log('Supplier created:', user.id);
+      
+      return {
+        message: 'Supplier account created successfully.',
+        userId: user.id,
+        email: dto.email,
+        role: UserRole.SELLER,
+      };
+    } catch (error) {
+      console.log('Supplier signup failed:', error.message);
+      if (error.errors?.[0]?.code === 'form_identifier_exists') {
+        throw new ConflictException('Email already exists');
+      }
       throw new ConflictException('Registration failed');
     }
   }
@@ -79,58 +117,81 @@ export class AuthService {
   async forgotPassword(email: string) {
     console.log('Password reset request for:', email);
 
+    // Always return same message for security (prevent email enumeration)
+    const secureMessage = 'If the email exists, a password reset link has been sent';
+
     try {
+      // Validate email format first
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return { message: secureMessage };
+      }
+
       const users = await this.clerkClient.users.getUserList({
         emailAddress: [email],
       });
 
       if (users.data.length === 0) {
         console.log('User not found for password reset');
-        return {
-          message: 'If the email exists, a password reset link has been sent',
-        };
+        return { message: secureMessage };
       }
 
       const user = users.data[0];
       
-      // Clerk handles password reset email automatically
+      // Check if user is verified
+      if (user.emailAddresses[0]?.verification?.status !== 'verified') {
+        console.log('Unverified user attempted password reset');
+        return { message: secureMessage };
+      }
+
+      // Create password reset token
+      await this.clerkClient.signInTokens.createSignInToken({
+        userId: user.id,
+        expiresInSeconds: 3600, // 1 hour
+      });
+      
       console.log('Password reset initiated for user:', user.id);
       
-      return {
-        message: 'Password reset email sent successfully',
-        email,
-      };
+      return { message: secureMessage };
     } catch (error) {
       console.log('Password reset failed:', error.message);
-      return {
-        message: 'If the email exists, a password reset link has been sent',
-      };
+      return { message: secureMessage };
     }
   }
 
-  private async checkDuplicates(dto: SignupDto): Promise<void> {
-    if (dto.role === UserRole.BUYER) {
-      const existing = await this.prisma.facility.findFirst({
-        where: {
-          OR: [
-            { email: dto.email },
-            { registrationNumber: dto.registrationNumber },
-          ],
-        },
-      });
+  private async checkBuyerDuplicates(dto: BuyerSignupDto): Promise<void> {
+    const existing = await this.prisma.facility.findFirst({
+      where: {
+        OR: [
+          { email: dto.email },
+          { registrationNumber: dto.registrationNumber },
+        ],
+      },
+    });
 
-      if (existing) {
-        console.log('Duplicate facility detected');
-        throw new ConflictException('Facility already exists');
-      }
+    if (existing) {
+      console.log('Duplicate buyer detected');
+      throw new ConflictException('Company already exists with this email or registration number');
     }
   }
 
-  private async createFacility(clerkUserId: string, dto: SignupDto) {
-    await this.prisma.facility.create({
+  private async checkSupplierDuplicates(dto: SupplierSignupDto): Promise<void> {
+    const existing = await this.prisma.supplier.findFirst({
+      where: { email: dto.email },
+    });
+
+    if (existing) {
+      console.log('Duplicate supplier detected');
+      throw new ConflictException('Supplier already exists with this email');
+    }
+  }
+
+  private async createFacility(clerkUserId: string, dto: BuyerSignupDto) {
+    const facility = await this.prisma.facility.create({
       data: {
         clerkUserId,
-        legalName: dto.legalName,
+        companyName: dto.companyName,
+        legalName: dto.companyName,
         email: dto.email,
         phoneNumber: dto.phoneNumber,
         registrationNumber: dto.registrationNumber,
@@ -140,10 +201,37 @@ export class AuthService {
     await this.clerkClient.users.updateUserMetadata(clerkUserId, {
       publicMetadata: {
         role: UserRole.BUYER,
-        facilityRegistered: true,
+        facilityId: facility.id,
+        onboardingComplete: true,
       },
     });
 
     console.log('Facility created for user:', clerkUserId);
   }
+
+  private async createSupplier(clerkUserId: string, dto: SupplierSignupDto) {
+    const supplier = await this.prisma.supplier.create({
+      data: {
+        clerkUserId,
+        supplierName: dto.supplierName,
+        email: dto.email,
+        phoneNumber: dto.phoneNumber,
+        supplierAddress: dto.supplierAddress,
+        supplyType: dto.supplyType,
+        certificationImage: null,
+      },
+    });
+
+    await this.clerkClient.users.updateUserMetadata(clerkUserId, {
+      publicMetadata: {
+        role: UserRole.SELLER,
+        supplierId: supplier.id,
+        onboardingComplete: true,
+      },
+    });
+
+    console.log('Supplier created for user:', clerkUserId);
+  }
+
+
 }

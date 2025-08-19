@@ -24,4 +24,12 @@ export class ConfigService {
       nodeEnv: this.configService.get<string>('NODE_ENV', 'development'),
     };
   }
+
+  get cloudinary() {
+    return {
+      cloudName: this.configService.get<string>('CLOUDINARY_CLOUD_NAME'),
+      apiKey: this.configService.get<string>('CLOUDINARY_API_KEY'),
+      apiSecret: this.configService.get<string>('CLOUDINARY_API_SECRET'),
+    };
+  }
 }

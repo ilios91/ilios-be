@@ -33,10 +33,11 @@ export class FacilitiesService {
       publicMetadata: {
         role: UserRole.BUYER,
         facilityId: savedFacility.id,
+        onboardingComplete: true,
       },
     });
 
-    console.log('Facility registered:', savedFacility.id);
+    console.log('Facility registered and onboarding completed:', savedFacility.id);
     return savedFacility;
   }
 
@@ -58,5 +59,13 @@ export class FacilitiesService {
 
   async findByClerkUserId(clerkUserId: string): Promise<Facility | null> {
     return this.prisma.facility.findUnique({ where: { clerkUserId } });
+  }
+
+  async getOnboardingStatus(clerkUserId: string) {
+    const facility = await this.findByClerkUserId(clerkUserId);
+    return {
+      onboardingComplete: !!facility,
+      facilityId: facility?.id,
+    };
   }
 }
